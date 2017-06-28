@@ -4,7 +4,10 @@
  * and open the template in the editor.
  */
 package Basica;
+//import BD.Type_DatoParm;
+import com.SoftfisTIC.bd.ListaE;
 import java.sql.*;
+import java.util.ArrayList;
 
 /*
 * Desarrollado para SoftFistTIC
@@ -22,28 +25,39 @@ public class Basica {
     protected Connection conn = null;
     protected Statement stmt = null;
     protected ResultSet rs = null;
+    protected CallableStatement cs =null;
     
     protected String sconn;
     protected String[] resp;
+    protected String[] spout;
+    protected String[] cols;
     protected String metodo;
     protected String sp;
-    //protected DataTable dt;
+    protected ArrayList<String[]> arr;
     protected boolean verifica;
+    protected boolean lleno;
     
-
-    // Declare the JDBC objects.
     /**
      * Constructor sin Cadena de Conexión
      */
     public Basica(){
         DB_Driver="com.microsoft.sqlserver.jdbc.SQLServerDriver";
-        resp = new String[2];
-        metodo = "";
-        sp = "";
+        
         sconn="";
         conn = null;
         stmt = null;
         rs = null;
+        cs = null;
+        
+        resp = new String[2];
+        spout = null;
+        cols = null;
+        arr=null;
+        metodo = "";
+        sp = "";
+        
+        verifica = false;
+        lleno = false;
         //par = null;
     }	
     
@@ -53,13 +67,23 @@ public class Basica {
      */
     public Basica(String sconn){
         DB_Driver="com.microsoft.sqlserver.jdbc.SQLServerDriver";
-        resp = new String[2];
-        metodo = "";
-        sp = "";
+        
         this.sconn=sconn;
         conn = null;
         stmt = null;
         rs = null;
+        cs = null;
+        
+        resp = new String[2];
+        spout = null;
+        cols = null;
+        arr=null;
+        metodo = "";
+        sp = "";
+        
+        verifica = false;
+        lleno = false;
+        
         //par = null;
         VerificaConexion();
     }
@@ -88,7 +112,7 @@ public class Basica {
     
     /**
      * Establece la conexión con el servidor con las credenciales asigandas
-     * @return True si se establece la conexión
+     * @return True, Se establece la conexión
      */
     protected  boolean AbrirConexion(){
         boolean abierta=false;
@@ -105,6 +129,11 @@ public class Basica {
                 return true;
             conn = DriverManager.getConnection(sconn);
             abierta = conn.isValid(1);
+            cs= null;
+            rs=null;
+            stmt = null;
+            arr= null;
+            lleno = false;
             resp[0] = "Exito";
             resp[1] = "Exito al establecer la Conexión";
         }
@@ -121,7 +150,7 @@ public class Basica {
     
     /**
      * Cierra la Conexión Actual
-     * @return True si se cerró
+     * @return True, si se cierra la conexción
      */
     protected boolean CerrarConexion(){
         boolean cerrada=false;
@@ -135,9 +164,11 @@ public class Basica {
                 cerrada = false;
         }
         finally {
-                if (rs != null) try { rs.close(); } catch(Exception e) {}
-                if (stmt != null) try { stmt.close(); } catch(Exception e) {}
-        }
+         if (rs != null) try { rs.close(); } catch(Exception e) {}
+         if (stmt != null) try { stmt.close(); } catch(Exception e) {}
+         if (conn != null) try { conn.close(); } catch(Exception e) {}
+         if (cs != null) try { cs.close(); } catch(Exception e) {}
+      }
         return cerrada;
     }
     
@@ -158,8 +189,8 @@ public class Basica {
     /**
      * Genera Error concatenado a otro
      * @param ex Recibe la excepción
-     * @param Desc Agrega Descripción personalizada
-     * @param Concatena True si Agrega al Final de Otro Mensaje de Error.
+     * @param Desc Agrega descripción personalizada
+     * @param Concatena True, si Agrega al final de otro mensaje de error.
      */
     protected void GeneraError(SQLException ex, String Desc, boolean Concatena){
         resp[0] = "Error";
@@ -182,29 +213,191 @@ public class Basica {
     
     /**
      * Genera Error Sin concatenar errores Anteriores
-     * @param ex Recibe la Excepcion
-     * @param Desc Agrega una descripcion personalizada
+     * @param ex Recibe la excepción
+     * @param Desc Agrega una descripción personalizada
      */
     protected void GeneraError(SQLException ex, String Desc){
        GeneraError(ex, Desc, false);
+       System.out.println(resp[1]);
+    }
+    
+     /**
+     * Genera el Statement para ejecutar un SP
+     * @param SP Nombre del SP, debe incluir esquema(No necesario en dbo)
+     * @param Param Lista de Parametros
+     */
+    protected void GeneraParams(String SP,Object[][] Param){
+        String spaux = "{ call "+SP+(Param!=null?"(":"");
+        for(int i=0;Param!=null && i<Param.length;i++)
+            spaux += "?"+(i<Param.length-1?",":"");
+        spaux +=(Param!=null?")":"")+" }";
+        try{
+            sp=SP;
+            cs = conn.prepareCall(spaux);
+            if (Param==null)
+                return;
+            
+            for(int i=0;i<Param.length;i++){
+                if(Param[i][3].toString().equals("Output")){
+                    switch(Param[i][1].toString()){
+                        case "TInt":
+                            cs.registerOutParameter(Param[i][0].toString(), java.sql.Types.INTEGER);
+                            break;
+                        case "TDecimal":
+                        case "TDouble":
+                            cs.registerOutParameter(Param[i][0].toString(), java.sql.Types.DECIMAL);
+                            break;
+                        case "TDate":   
+                            cs.registerOutParameter(Param[i][0].toString(), java.sql.Types.DATE);
+                            break;
+                        case "Default":
+                        case "TVarchar":
+                            cs.registerOutParameter(Param[i][0].toString(), java.sql.Types.VARCHAR);
+                            break;
+                    }
+                }else{
+                    //System.out.println(Param[i][1].toString());
+                    switch(Param[i][1].toString()){
+                        case "TInt":
+                            cs.setInt(Param[i][0].toString(), Integer.parseInt(Param[i][2].toString()));
+                            break;
+                        case "TDecimal":
+                        case "TDouble":
+                            cs.setDouble(Param[i][0].toString(), Double.parseDouble(Param[i][2].toString()));
+                            break;
+                        case "TDate":
+                            cs.setDate(Param[i][0].toString(), Date.valueOf(Param[i][2].toString()));
+                            break;
+                        case "Default":
+                        case "TVarchar":
+                            cs.setString(Param[i][0].toString(), Param[i][2].toString());
+                            break;
+                    }
+                }
+            }
+        }
+        catch(SQLException ex){
+            cs=null;
+            GeneraError(ex,"GeneraParams");
+        }
+    }
+    
+    /**
+     * Lee los parametros para obtener una salida
+     * @param Param Lista de Parametros
+     */
+    protected void ObtieneSalida(Object[][] Param){
+        spout = new String[Param.length];
+        try{
+            if (Param==null)
+                return;
+            
+            for(int i=0;i<Param.length;i++){
+                if(Param[i][3].toString().equals("Output")){
+                    switch(Param[i][1].toString()){
+                        case "TInt":
+                            spout[i] = cs.getInt(Param[i][0].toString())+"";
+                            break;
+                        case "TDecimal":
+                        case "TDouble":
+                            spout[i]= cs.getDouble(Param[i][0].toString())+"";
+                            break;
+                        case "TDate":   
+                            spout[i]= cs.getDate(Param[i][0].toString())+"";
+                            break;
+                        case "Default":
+                        case "TVarchar":
+                            spout[i]= cs.getString(Param[i][0].toString());
+                            break;
+                    }
+                }
+                else spout[i] = "NA";
+            }
+        }catch(SQLException ex){
+            GeneraError(ex,"ObtieneSalida",true);
+        }
+    }
+    
+    /**
+     * Genera una Lista con un arreglo de todas las columnas de un ResultSet
+     * @param Cols Cantidad de Columnas
+     * @return ArrayList con un arreglo de String
+     */
+    protected ArrayList<String[]> LOLista(int Cols){
+        BValidaSalida();
+        if (!lleno) return null;
+        NombreColumnas(Cols);
+        //ArrayList<String[]> dt=null;
+        String []row;
+        try{
+            arr = new ArrayList<>();
+            while(rs.next()){
+                row = new String[Cols];
+                for(int i=1;i<=Cols;i++){
+                    row[i-1]=rs.getString(i);
+                }
+                arr.add(row);
+            }
+        }
+        catch(SQLException ex){
+            System.out.println(ex.getMessage());
+            arr= null;
+        }
+        return arr;
+    }
+    
+    /**
+     * Genera un List con los datos para usarse en un combo
+     * @return ArrayList con los Datos para un Combo
+     */
+    protected ArrayList<ListaE> LCLista(){
+        BValidaSalida();
+        if (!lleno) return null;
+        ArrayList<ListaE> dt=null;
+        try{
+            dt = new ArrayList<>();
+            while(rs.next()){
+                dt.add(new ListaE(rs.getString(1),rs.getString(2)));
+            }
+        }
+        catch(SQLException ex){
+            System.out.println(ex.getMessage());
+        }
+        return dt;
     }
     
     /**
      * Valida que la consulta contenga almenos un dato
-     * @param rs ResultSet de la consulta
-     * @return True si contiene Registros
      */
-    protected boolean BValidaSalida(ResultSet rs){
+    protected void BValidaSalida(){
         try{
             if( rs == null)
-                return false;
-            else if(!rs.first()) 
-                return false;
+                lleno = false;
+            else if(!rs.next()) 
+                lleno = false;
+            rs.beforeFirst();
             }
         catch(SQLException e){
             System.out.println(e.getMessage());
-            return false;
+            lleno = false;
         }
-        return true;
+        lleno = true;
     }
+    
+    /**
+     * Para obtener los nombres de las columnas del ResultSet
+     * @param Cols Cantidad de Columnas
+     */
+    protected void NombreColumnas(int Cols){
+        cols = new String[Cols];
+        try{
+            for(int i=1;i<=Cols;i++){
+                cols[i-1]=rs.getMetaData().getColumnName(i);
+            }
+        }catch(SQLException ex){
+            cols = null;
+            System.out.println(ex.getMessage());
+        }
+    }
+    
 }
